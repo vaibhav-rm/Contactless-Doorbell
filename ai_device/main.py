@@ -36,6 +36,8 @@ system_state = "SLEEPING" # "SLEEPING" or "AWAKE"
 last_visitor_name = "None"
 is_locked = True
 last_active_time = 0
+use_capture_polling = False
+capture_url = ""
 
 def get_fallback_frame(width=640, height=480):
     """
@@ -85,7 +87,31 @@ def get_standby_frame(width=640, height=480):
 def open_esp32_cam_stream(base_url):
     """
     Attempts multiple standard ESP32-CAM streaming endpoints to ensure connection.
+    Falls back to /capture polling if no stream is active.
     """
+    global use_capture_polling, capture_url
+    
+    # 1. First, check if the base_url or /capture is working as a static JPEG capture endpoint
+    test_urls = [
+        base_url.rstrip('/') + "/capture",
+        base_url if "/capture" in base_url else ""
+    ]
+    for test_url in test_urls:
+        if not test_url:
+            continue
+        print(f"[Main] Testing if endpoint is a capture-only JPEG endpoint: {test_url}")
+        try:
+            r = requests.get(test_url, timeout=1.5)
+            if r.status_code == 200 and len(r.content) > 1000:
+                print(f"[Main] Verified working capture-only endpoint. Switching to JPEG polling mode: {test_url}")
+                use_capture_polling = True
+                capture_url = test_url
+                return None
+        except Exception:
+            pass
+            
+    # 2. Fallback to standard MJPEG streaming endpoints
+    use_capture_polling = False
     endpoints = [
         base_url,
         base_url + "/stream",
@@ -110,7 +136,7 @@ def video_capture_loop():
     State machine controlling hardware wakeup, face detection, 
     and energy savings.
     """
-    global latest_frame, system_state, last_visitor_name, last_active_time
+    global latest_frame, system_state, last_visitor_name, last_active_time, use_capture_polling, capture_url
     print("[Main] Video capture thread started.")
     
     cap = None
@@ -131,20 +157,30 @@ def video_capture_loop():
                 
                 # Start ESP32-CAM Capture
                 cap = open_esp32_cam_stream(CAMERA_SOURCE)
-                if not cap:
+                if not cap and not use_capture_polling:
                     print("[Main] WARNING: Camera stream could not be opened. Using fallback feed.")
         
         # State: Awake
         if system_state == "AWAKE":
             frame = None
-            if cap is not None:
-                ret, frame = cap.read()
-                if not ret:
-                    print("[Main] Failed to read frame from stream. Reconnecting...")
-                    cap.release()
-                    cap = open_esp32_cam_stream(CAMERA_SOURCE)
-                    if cap:
-                        ret, frame = cap.read()
+            if use_capture_polling:
+                try:
+                    r = requests.get(capture_url, timeout=1.5)
+                    if r.status_code == 200:
+                        img_arr = np.frombuffer(r.content, dtype=np.uint8)
+                        frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
+                except Exception as e:
+                    print(f"[Main] Error polling capture frame: {e}")
+                time.sleep(0.08) # Rate limit polling to ~12 FPS
+            else:
+                if cap is not None:
+                    ret, frame = cap.read()
+                    if not ret:
+                        print("[Main] Failed to read frame from stream. Reconnecting...")
+                        cap.release()
+                        cap = open_esp32_cam_stream(CAMERA_SOURCE)
+                        if cap:
+                            ret, frame = cap.read()
             
             # If camera stream is offline/failed, generate a placeholder frame
             if frame is None:
