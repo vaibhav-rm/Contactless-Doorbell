@@ -1,6 +1,10 @@
 import os
 import time
 
+# Configuration: set to "sh1106" or "ssd1306" depending on your OLED screen model.
+# Many cheap 128x64 screens sold as SSD1306 are actually SH1106, which displays jibberish under the SSD1306 driver.
+OLED_TYPE = "sh1106" 
+
 # Check if running on Raspberry Pi
 ON_PI = False
 try:
@@ -23,27 +27,6 @@ class DeviceController:
         self.ir_pin = 17
         self.pwm = None
         self.oled_device = None
-        self.font = None
-        
-        # Load system truetype font if available
-        if ON_PI:
-            font_paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
-            ]
-            for path in font_paths:
-                if os.path.exists(path):
-                    try:
-                        self.font = ImageFont.truetype(path, 11)
-                        break
-                    except Exception:
-                        pass
-        if self.font is None:
-            try:
-                self.font = ImageFont.load_default()
-            except Exception:
-                self.font = None
         
         self.init_hardware()
 
@@ -64,13 +47,10 @@ class DeviceController:
                 
                 # Initialize OLED Display
                 serial_bus = i2c(port=1, address=0x3C)
-                driver_type = os.getenv("OLED_DRIVER", "ssd1306").lower()
-                if driver_type == "sh1106":
+                if OLED_TYPE.lower() == "sh1106":
                     self.oled_device = sh1106(serial_bus)
-                    print("[DeviceController] Initialized SH1106 OLED display driver.")
                 else:
                     self.oled_device = ssd1306(serial_bus)
-                    print("[DeviceController] Initialized SSD1306 OLED display driver.")
                 self.display_oled("SYSTEM INITIALIZED", "READY")
             except Exception as e:
                 print(f"[DeviceController] Error initializing physical hardware: {e}")
@@ -104,8 +84,8 @@ class DeviceController:
             try:
                 with canvas(self.oled_device) as draw:
                     draw.rectangle(self.oled_device.bounding_box, outline="white", fill="black")
-                    draw.text((10, 15), line1, fill="white", font=self.font)
-                    draw.text((10, 35), line2, fill="white", font=self.font)
+                    draw.text((10, 15), line1, fill="white")
+                    draw.text((10, 35), line2, fill="white")
             except Exception as e:
                 print(f"[DeviceController] Error writing to OLED: {e}")
         else:
