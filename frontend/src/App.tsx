@@ -83,6 +83,10 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Stream connection state
+  const [streamError, setStreamError] = useState(false);
+  const [streamKey, setStreamKey] = useState(0);
+
   // Simulator values
   const [simOledText, setSimOledText] = useState('SYSTEM LOCKED\nREADY');
   const [simServoAngle, setSimServoAngle] = useState(0);
@@ -498,29 +502,31 @@ export default function App() {
                     </span>
                   </div>
                   <div className="aspect-video bg-slate-950 flex items-center justify-center relative">
-                    {/* Img source points to Python video proxy server */}
-                    <img 
-                      src={`http://${hostname}:8081/video_feed`} 
-                      alt="Live Stream Feed" 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        // If offline, display a beautiful placeholder
-                        (e.target as HTMLImageElement).src = '';
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent) {
-                          const placeholder = parent.querySelector('.stream-offline-placeholder');
-                          if (placeholder) placeholder.classList.remove('hidden');
-                        }
-                      }}
-                    />
-                    <div className="stream-offline-placeholder hidden flex flex-col items-center gap-2 text-slate-500 p-8 text-center">
-                      <Camera className="w-12 h-12 stroke-[1.5] text-slate-600" />
-                      <div>
-                        <p className="text-sm font-bold text-slate-400">ESP32-CAM Stream Offline</p>
-                        <p className="text-xs text-slate-600 mt-1">Start the AI Device Agent service to activate the video camera feed</p>
+                    {!streamError ? (
+                      <img 
+                        src={`http://${hostname}:8081/video_feed?key=${streamKey}`} 
+                        alt="Live Stream Feed" 
+                        className="w-full h-full object-cover"
+                        onError={() => setStreamError(true)}
+                      />
+                    ) : (
+                      <div className="stream-offline-placeholder flex flex-col items-center gap-2 text-slate-500 p-8 text-center">
+                        <Camera className="w-12 h-12 stroke-[1.5] text-slate-600" />
+                        <div>
+                          <p className="text-sm font-bold text-slate-400">ESP32-CAM Stream Offline</p>
+                          <p className="text-xs text-slate-600 mt-1">Start the AI Device Agent service or retry connecting</p>
+                          <button
+                            onClick={() => {
+                              setStreamError(false);
+                              setStreamKey(prev => prev + 1);
+                            }}
+                            className="mt-3 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-bold transition shadow"
+                          >
+                            Reconnect Stream
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
