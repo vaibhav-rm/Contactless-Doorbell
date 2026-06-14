@@ -93,9 +93,9 @@ docker-compose up -d
    ```
 3. Start the Vite development server:
    ```bash
-   npm run dev
+   npm run dev -- --host
    ```
-   * Open `http://localhost:5173` in your browser.
+   * Open `http://localhost:5173` in your browser. The `--host` flag allows other devices on the same local network (like tablets or phones) to access the dashboard at `http://<pi-ip-address>:5173`.
 
 ### D. Python AI & Hardware Agent (Raspberry Pi 4)
 1. Install system dependencies on the Pi:
@@ -107,7 +107,7 @@ docker-compose up -d
    ```bash
    pip3 install -r ai_device/requirements.txt
    ```
-   *(Optionally, install `dlib` and `face_recognition` libraries to unlock advanced AI recognition. If they are missing, the agent will fall back to Haar Cascades automatically).*
+   *(Optionally, install the `face_recognition` library to unlock high-accuracy dlib recognition. If it is missing, the agent will fall back to Haar Cascades automatically).*
 3. Run the Python Agent:
    ```bash
    python3 ai_device/main.py
@@ -117,7 +117,22 @@ docker-compose up -d
 
 ## 5. Proximity-Based Power Saving Workflow
 
-To protect the lifespan of the SSD1306 OLED screen and save Raspberry Pi processing resources:
+To protect the lifespan of the OLED screen and save Raspberry Pi processing resources:
 1. **Sleeping State**: The Python agent runs in low-power mode. The OLED display is powered off (`set_display_power(False)`), and the camera stream is closed. The agent polls the IR sensor on GPIO 17 every 200ms.
 2. **Awake State**: When a visitor approaches (IR sensor goes LOW), the system immediately wakes up, powers on the OLED showing `"VISITOR DETECTED"`, connects to the ESP32-CAM stream, and starts running active face recognition.
 3. **Standby Transition**: If no visitor is detected near the sensor and no faces are present for 10 seconds, the OLED powers down, the video stream is closed, and the system transitions back to sleep mode.
+
+---
+
+## 6. Advanced Hardware & UI Features
+
+* **OLED Driver Toggle**: If your OLED screen is showing scrambled/scrolled text, edit `ai_device/device_controller.py` and set `OLED_TYPE = "sh1106"` or `OLED_TYPE = "ssd1306"`. Many cheap screens sold as SSD1306 actually run the SH1106 driver.
+* **Synthesized Doorbell Chimes**: The React web dashboard uses the browser's Web Audio API to synthesize high-quality dual-tone doorbell chimes (`ding-dong`) upon new visitor detection, lock status transition tones, and warning alert beeps without loading external audio assets.
+* **Stream Reconnection & State Recovery**: The live stream video container monitors stream availability and displays an overlay with a manual **Reconnect Stream** action. This ensures that you can restart the Python agent or recover from transient camera stream outages without refreshing the page.
+
+---
+
+## 7. Setup & Detailed Guides
+
+For full hardware wiring schematics, raspi-config guidelines, library installation troubleshooting, and Blynk Datastream mappings, refer to:
+* **[Setup & Configuration Guide](setup_guide.md)**
