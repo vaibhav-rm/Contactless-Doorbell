@@ -11,7 +11,7 @@ import websocket
 from face_engine import FaceEngine
 from device_controller import DeviceController
 
-app = Flask(name)
+app = Flask(__name__)
 
 # --- CONFIGURATION ---
 BACKEND_HTTP_URL = "http://localhost:8080/api"
