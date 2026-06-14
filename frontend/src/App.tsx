@@ -24,9 +24,10 @@ import {
 } from 'lucide-react';
 
 // API Configuration
-const API_BASE = 'http://localhost:8080/api';
-const WS_URL = 'ws://localhost:8080/ws/doorbell';
-const STATIC_BASE = 'http://localhost:8080';
+const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const API_BASE = `http://${hostname}:8080/api`;
+const WS_URL = `ws://${hostname}:8080/ws/doorbell`;
+const STATIC_BASE = `http://${hostname}:8080`;
 
 interface User {
   id: number;
@@ -490,7 +491,7 @@ export default function App() {
                   <div className="aspect-video bg-slate-950 flex items-center justify-center relative">
                     {/* Img source points to Python video proxy server */}
                     <img 
-                      src="http://localhost:8081/video_feed" 
+                      src={`http://${hostname}:8081/video_feed`} 
                       alt="Live Stream Feed" 
                       className="w-full h-full object-cover"
                       onError={(e) => {

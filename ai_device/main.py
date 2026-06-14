@@ -35,6 +35,7 @@ ws_client = None
 system_state = "SLEEPING" # "SLEEPING" or "AWAKE"
 last_visitor_name = "None"
 is_locked = True
+last_active_time = 0
 
 def get_fallback_frame(width=640, height=480):
     """
@@ -57,6 +58,28 @@ def get_fallback_frame(width=640, height=480):
     cv2.putText(frame, "Waiting for Face Detection...", (40, 140), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (16, 185, 129), 1)
     
+    return frame
+
+def get_standby_frame(width=640, height=480):
+    """
+    Generates a synthetic standby frame to display when system is sleeping.
+    """
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    frame[:, :] = [30, 20, 15] # Slate violet background
+    
+    # Grid lines
+    for y in range(0, height, 40):
+        cv2.line(frame, (0, y), (width, y), (45, 30, 22), 1)
+    for x in range(0, width, 40):
+        cv2.line(frame, (x, 0), (x, height), (45, 30, 22), 1)
+        
+    # Draw simple standby text message
+    cv2.putText(frame, "DOOR MONITOR", (width // 2 - 100, height // 2 - 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    cv2.putText(frame, "SYSTEM SLEEPING (STANDBY)", (width // 2 - 170, height // 2 + 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (148, 163, 184), 1)
+    cv2.putText(frame, "Trigger IR sensor or ring to wake", (width // 2 - 180, height // 2 + 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (16, 185, 129), 1)
     return frame
 
 def open_esp32_cam_stream(base_url):
@@ -87,11 +110,10 @@ def video_capture_loop():
     State machine controlling hardware wakeup, face detection, 
     and energy savings.
     """
-    global latest_frame, system_state, last_visitor_name
+    global latest_frame, system_state, last_visitor_name, last_active_time
     print("[Main] Video capture thread started.")
     
     cap = None
-    last_active_time = 0
     cooldown_seconds = 10
     last_ring_time = 0
     
@@ -281,7 +303,7 @@ def blynk_sync_loop():
 
 # Spring Boot WebSocket Client
 def on_ws_message(ws, message):
-    global is_locked
+    global is_locked, system_state, last_active_time
     try:
         data = json.loads(message)
         print("[WS Client] Received message from Backend:", data)
@@ -291,10 +313,17 @@ def on_ws_message(ws, message):
             if action == "UNLOCK":
                 device_ctrl.set_lock_state(False)
                 is_locked = False
+                system_state = "AWAKE"
+                last_active_time = time.time()
             elif action == "LOCK":
                 device_ctrl.set_lock_state(True)
                 is_locked = True
                 
+        elif data.get("type") == "VISITOR_ALERT":
+            print("[WS Client] Visitor/Simulation trigger detected. Waking up system.")
+            system_state = "AWAKE"
+            last_active_time = time.time()
+
         elif data.get("type") == "RELOAD_FACES":
             face_eng.load_known_faces()
             
@@ -331,16 +360,19 @@ def start_websocket_client():
 def gen_frames():
     global latest_frame
     while True:
+        frame_to_send = None
         with frame_lock:
-            if latest_frame is None:
-                time.sleep(0.1)
-                continue
-            ret, buffer = cv2.imencode('.jpg', latest_frame)
-            frame_bytes = buffer.tobytes()
+            if latest_frame is not None:
+                frame_to_send = latest_frame.copy()
+                
+        if frame_to_send is None:
+            frame_to_send = get_standby_frame()
             
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        time.sleep(0.04)
+        ret, buffer = cv2.imencode('.jpg', frame_to_send)
+        if ret:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(0.06)
 
 @app.route('/video_feed')
 def video_feed():
