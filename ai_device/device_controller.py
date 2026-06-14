@@ -11,8 +11,9 @@ try:
     from PIL import ImageFont
     ON_PI = True
     print("[DeviceController] Hardware libraries loaded. Running on Raspberry Pi.")
-except ImportError:
-    print("[DeviceController] GPIO or Luma OLED libraries not found. Running in SIMULATION MODE.")
+except ImportError as e:
+    print(f"[DeviceController] Hardware import failed: {e}")
+    print("[DeviceController] Running in SIMULATION MODE. (To run on real hardware, install RPi.GPIO and luma.oled)")
 
 class DeviceController:
     def __init__(self, websocket_callback=None):
