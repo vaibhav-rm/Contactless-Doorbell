@@ -176,10 +176,19 @@ export default function App() {
             setSimOledText(locked ? "SYSTEM LOCKED\nREADY" : "DOOR UNLOCKED\nWELCOME");
           } else if (message.type === 'VISITOR_ALERT') {
             const newLog: AccessLog = message.log;
-            setLogs(prev => [newLog, ...prev]);
-            setRecentLogs(prev => [newLog, ...prev.slice(0, 9)]);
+            setLogs(prev => {
+              if (prev.some(l => l.id === newLog.id)) return prev;
+              return [newLog, ...prev];
+            });
+            setRecentLogs(prev => {
+              if (prev.some(l => l.id === newLog.id)) return prev;
+              return [newLog, ...prev.slice(0, 9)];
+            });
             if (newLog.decision === 'PENDING') {
-              setPendingAlerts(prev => [newLog, ...prev]);
+              setPendingAlerts(prev => {
+                if (prev.some(l => l.id === newLog.id)) return prev;
+                return [newLog, ...prev];
+              });
             }
           } else if (message.type === 'VISITOR_DECISION') {
             const { logId, decision } = message;
