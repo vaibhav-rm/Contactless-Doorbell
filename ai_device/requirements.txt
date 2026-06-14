@@ -1,0 +1,6 @@
+opencv-python>=4.8.0
+numpy>=1.21.0
+requests>=2.28.0
+flask>=3.0.0
+websocket-client>=1.6.0
+# face_recognition (requires cmake, gcc, and dlib. Optional, falls back to Haar Cascade if not installed)

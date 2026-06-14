@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: doorbell-db
+    restart: always
+    environment:
+      POSTGRES_USER: doorbell
+      POSTGRES_PASSWORD: doorbell_pass
+      POSTGRES_DB: doorbell_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - doorbell_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  doorbell_postgres_data:

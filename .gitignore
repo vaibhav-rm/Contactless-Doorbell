@@ -1,0 +1,50 @@
+# Java / Maven
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/.metadata
+backend/bin/
+backend/tmp/
+backend/out/
+backend/*.iml
+backend/.idea/
+backend/.classpath
+backend/.project
+backend/.settings/
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.env*
+frontend/.idea/
+frontend/*.suo
+frontend/*.ntvs*
+frontend/*.njsproj
+frontend/*.sln
+
+# Python / AI Agent
+ai_device/__pycache__/
+ai_device/*.pyc
+ai_device/*.pyo
+ai_device/*.pyd
+ai_device/.pytest_cache/
+ai_device/temp_auth.jpg
+ai_device/temp_unknown.jpg
+ai_device/.venv/
+ai_device/venv/
+ai_device/env/
+
+# System / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+prd.txt
+
+# Dynamic Upload Directories (Do not commit uploaded face data)
+stored_faces/
+visitor_snapshots/
+!stored_faces/.gitkeep
+!visitor_snapshots/.gitkeep
