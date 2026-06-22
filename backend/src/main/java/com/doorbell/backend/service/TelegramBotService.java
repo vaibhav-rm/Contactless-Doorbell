@@ -26,13 +26,22 @@ public class TelegramBotService {
     private final AccessLogRepository accessLogRepository;
     private final DoorbellWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate;
+    private RestTemplate restTemplate;
 
     @Value("${telegram.bot.token:}")
     private String botToken;
 
     @Value("${telegram.chat.id:}")
     private String chatId;
+
+    @Value("${telegram.api.url:https://api.telegram.org}")
+    private String apiUrl;
+
+    @Value("${telegram.proxy.host:}")
+    private String proxyHost;
+
+    @Value("${telegram.proxy.port:0}")
+    private int proxyPort;
 
     private boolean active = false;
     private Thread pollingThread;
@@ -43,11 +52,6 @@ public class TelegramBotService {
         this.accessLogRepository = accessLogRepository;
         this.webSocketHandler = webSocketHandler;
         this.objectMapper = objectMapper;
-        
-        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);
-        factory.setReadTimeout(5000);
-        this.restTemplate = new RestTemplate(factory);
     }
 
     @PostConstruct
@@ -56,6 +60,22 @@ public class TelegramBotService {
             System.out.println("[TelegramBot] Token or Chat ID not configured. Bot integration disabled.");
             return;
         }
+
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(5000);
+
+        if (proxyHost != null && !proxyHost.trim().isEmpty() && proxyPort > 0) {
+            System.out.println("[TelegramBot] Configuring HTTP proxy: " + proxyHost + ":" + proxyPort);
+            java.net.Proxy proxy = new java.net.Proxy(
+                java.net.Proxy.Type.HTTP, 
+                new java.net.InetSocketAddress(proxyHost, proxyPort)
+            );
+            factory.setProxy(proxy);
+        }
+
+        this.restTemplate = new RestTemplate(factory);
+
         active = true;
         System.out.println("[TelegramBot] Initialized. Starting updates long polling thread...");
         pollingThread = new Thread(this::pollUpdates);
@@ -75,7 +95,7 @@ public class TelegramBotService {
         int offset = 0;
         while (active) {
             try {
-                String url = String.format("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=10", botToken, offset);
+                String url = String.format("%s/bot%s/getUpdates?offset=%d&timeout=10", apiUrl, botToken, offset);
                 String responseStr = restTemplate.getForObject(url, String.class);
                 if (responseStr != null) {
                     JsonNode root = objectMapper.readTree(responseStr);
@@ -158,7 +178,7 @@ public class TelegramBotService {
 
     private void answerCallback(String callbackQueryId, String text) {
         try {
-            String url = String.format("https://api.telegram.org/bot%s/answerCallbackQuery", botToken);
+            String url = String.format("%s/bot%s/answerCallbackQuery", apiUrl, botToken);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             MultiValueMap<String, String> map = new LinkedMultiValueMap<>();
@@ -173,7 +193,7 @@ public class TelegramBotService {
 
     private void updateTelegramMessage(long chatId, long messageId, AccessLog log, boolean approved, String approver) {
         try {
-            String url = String.format("https://api.telegram.org/bot%s/editMessageCaption", botToken);
+            String url = String.format("%s/bot%s/editMessageCaption", apiUrl, botToken);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
@@ -203,7 +223,7 @@ public class TelegramBotService {
         if (!active) return;
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                String url = String.format("https://api.telegram.org/bot%s/sendPhoto", botToken);
+                String url = String.format("%s/bot%s/sendPhoto", apiUrl, botToken);
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
