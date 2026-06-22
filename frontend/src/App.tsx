@@ -1355,11 +1355,16 @@ export default function App() {
                 <div className={`relative rounded-xl overflow-hidden border aspect-video flex items-center justify-center ${isDarkMode ? 'bg-slate-955 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
                   {selectedDetailLog.videoPath ? (
                     <video 
-                      src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.videoPath}`}
                       controls
                       autoPlay
                       className="w-full h-full object-contain"
-                    />
+                    >
+                      <source 
+                        src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.videoPath}`} 
+                        type="video/mp4" 
+                      />
+                      Your browser does not support the video tag.
+                    </video>
                   ) : selectedDetailLog.imagePath ? (
                     <img 
                       src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.imagePath}`}

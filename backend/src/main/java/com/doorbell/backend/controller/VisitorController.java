@@ -66,6 +66,19 @@ public class VisitorController {
             @RequestParam(value = "image", required = false) MultipartFile file,
             @RequestParam(value = "video", required = false) MultipartFile videoFile) {
 
+        if ("PENDING".equals(decision)) {
+            java.time.LocalDateTime cutoff = java.time.LocalDateTime.now().minusSeconds(60);
+            List<AccessLog> existingPending = accessLogRepository.findByDecisionAndRecognitionResultAndTimestampAfter(
+                "PENDING", 
+                recognitionResult, 
+                cutoff
+            );
+            if (!existingPending.isEmpty()) {
+                System.out.println("[VisitorController] Deduplicated duplicate ring request for: " + recognitionResult);
+                return ResponseEntity.ok(existingPending.get(0));
+            }
+        }
+
         String fileName = null;
         if (file != null && !file.isEmpty()) {
             try {

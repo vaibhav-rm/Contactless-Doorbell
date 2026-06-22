@@ -250,6 +250,8 @@ def video_capture_loop():
     cap = None
     cooldown_seconds = 10
     last_ring_time = 0
+    last_triggered_visitor = None
+    last_triggered_time = 0
     
     while True:
         # Check Proximity Sensor (IR Pin 17 - active LOW)
@@ -310,12 +312,6 @@ def video_capture_loop():
                     residents = [n for n in detected_names if n != "Unknown"]
                     unknowns_count = detected_names.count("Unknown")
                     
-                    last_ring_time = current_time
-                    
-                    # Extract rolling buffer frames for video clip
-                    video_frames = list(frame_buffer)
-                    frame_buffer.clear() # Reset for next sequence
-                    
                     if len(residents) > 0:
                         # At least one resident is recognized: Auto-unlock
                         residents_str = ", ".join(residents)
@@ -323,17 +319,29 @@ def video_capture_loop():
                             log_name = f"{residents_str} (accompanied by {unknowns_count} Unknown)"
                         else:
                             log_name = residents_str
-                        
-                        last_visitor_name = log_name
-                        trigger_automatic_unlock(residents[0], log_name, processed_frame, video_frames)
                     else:
                         # ONLY unknown faces are present
                         log_name = "Unknown"
                         if unknowns_count > 1:
                             log_name = f"Unknown x{unknowns_count}"
                             
+                    # Local deduplication: check if same visitor name was triggered recently
+                    if log_name == last_triggered_visitor and (current_time - last_triggered_time < 60.0):
+                        print(f"[Main] Deduplicating ring for '{log_name}' (already triggered {(current_time - last_triggered_time):.1f}s ago)")
+                    else:
+                        last_triggered_visitor = log_name
+                        last_triggered_time = current_time
+                        last_ring_time = current_time
                         last_visitor_name = log_name
-                        trigger_unknown_alert(log_name, processed_frame, video_frames)
+                        
+                        # Extract rolling buffer frames for video clip
+                        video_frames = list(frame_buffer)
+                        frame_buffer.clear() # Reset for next sequence
+                        
+                        if len(residents) > 0:
+                            trigger_automatic_unlock(residents[0], log_name, processed_frame, video_frames)
+                        else:
+                            trigger_unknown_alert(log_name, processed_frame, video_frames)
             
             # Handle Sleep timeout (10 seconds without IR/Face trigger)
             if time.time() - last_active_time > 10.0:
@@ -363,14 +371,40 @@ def log_visitor_event_async(recognition_result, decision, approved_by, frame, vi
             # 2. Save video clip if frames exist
             temp_vid_path = None
             if video_frames:
+                raw_vid_path = f"temp_vid_raw_{int(time.time())}.mp4"
                 temp_vid_path = f"temp_vid_{int(time.time())}.mp4"
                 height, width, _ = video_frames[0].shape
-                # Use standard 'mp4v' codec for MP4 files
+                # Use standard 'mp4v' codec to write a temporary raw file quickly
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(temp_vid_path, fourcc, 20.0, (width, height))
+                out = cv2.VideoWriter(raw_vid_path, fourcc, 20.0, (width, height))
                 for f in video_frames:
                     out.write(f)
                 out.release()
+                
+                # Transcode using ffmpeg to standard H.264 for HTML5 browser compatibility
+                try:
+                    import subprocess
+                    subprocess.run([
+                        'ffmpeg', '-y', '-i', raw_vid_path,
+                        '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                        '-preset', 'ultrafast', '-crf', '28',
+                        temp_vid_path
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                    # Clean up the raw file
+                    if os.path.exists(raw_vid_path):
+                        os.remove(raw_vid_path)
+                except Exception as ex:
+                    print(f"[Main Async Log] ffmpeg transcoding failed: {ex}. Falling back to raw file.")
+                    # Fallback to the raw file if ffmpeg fails
+                    if os.path.exists(temp_vid_path):
+                        try:
+                            os.remove(temp_vid_path)
+                        except Exception:
+                            pass
+                    try:
+                        os.rename(raw_vid_path, temp_vid_path)
+                    except Exception:
+                        temp_vid_path = raw_vid_path
             
             # 3. Build multipart request
             files = {}
@@ -412,6 +446,9 @@ def trigger_automatic_unlock(first_resident_name, full_log_name, frame, video_fr
     device_ctrl.set_lock_state(False) # Unlock door (GPIO 18)
     is_locked = False
     
+    # Send Blynk Event Notification
+    log_blynk_event("authorized_entry", f"Authorized entry for {first_resident_name}")
+    
     # Save snapshot, record log, and video asynchronously
     log_visitor_event_async(full_log_name, 'APPROVED', 'AUTOMATIC', frame, video_frames)
         
@@ -421,6 +458,9 @@ def trigger_automatic_unlock(first_resident_name, full_log_name, frame, video_fr
 def trigger_unknown_alert(name, frame, video_frames):
     print(f"[Main] Unknown face(s) '{name}' detected. Dispatching alert to Web dashboard and Blynk.")
     device_ctrl.display_oled("UNKNOWN VISIT", "WAITING FOR ADMIN")
+    
+    # Send Blynk Event Notification
+    log_blynk_event("visitor_detected", "Unknown visitor detected at the door!")
     
     # Save snapshot, record log, and video asynchronously
     log_visitor_event_async(name, 'PENDING', 'PENDING', frame, video_frames)
@@ -436,6 +476,18 @@ def auto_relock_timer():
         requests.post(f"{BACKEND_HTTP_URL}/lock/lock?source=SYSTEM")
     except Exception:
         pass
+
+def log_blynk_event(event_code, description=""):
+    if not BLYNK_AUTH_TOKEN:
+        return
+    def run():
+        try:
+            import urllib.parse
+            url = f"https://blynk.cloud/external/api/logEvent?token={BLYNK_AUTH_TOKEN}&code={event_code}&description={urllib.parse.quote(description)}"
+            requests.get(url, timeout=3)
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True).start()
 
 # Blynk IoT Sync Loop
 def blynk_sync_loop():

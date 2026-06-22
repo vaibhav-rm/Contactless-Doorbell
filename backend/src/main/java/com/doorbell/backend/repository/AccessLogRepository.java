@@ -9,4 +9,10 @@ import java.util.List;
 @Repository
 public interface AccessLogRepository extends JpaRepository<AccessLog, Long> {
     List<AccessLog> findTop10ByOrderByTimestampDesc();
+
+    List<AccessLog> findByDecisionAndRecognitionResultAndTimestampAfter(
+        String decision, 
+        String recognitionResult, 
+        java.time.LocalDateTime timestamp
+    );
 }

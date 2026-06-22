@@ -93,6 +93,7 @@ public class TelegramBotService {
 
     private void pollUpdates() {
         int offset = 0;
+        int consecutiveFailures = 0;
         while (active) {
             try {
                 String url = String.format("%s/bot%s/getUpdates?offset=%d&timeout=10", apiUrl, botToken, offset);
@@ -100,6 +101,7 @@ public class TelegramBotService {
                 if (responseStr != null) {
                     JsonNode root = objectMapper.readTree(responseStr);
                     if (root.path("ok").asBoolean()) {
+                        consecutiveFailures = 0;
                         JsonNode result = root.path("result");
                         for (JsonNode update : result) {
                             int updateId = update.path("update_id").asInt();
@@ -109,10 +111,20 @@ public class TelegramBotService {
                                 handleCallbackQuery(update.path("callback_query"));
                             }
                         }
+                    } else {
+                        consecutiveFailures++;
                     }
+                } else {
+                    consecutiveFailures++;
                 }
             } catch (Exception e) {
-                System.err.println("[TelegramBot] Error polling updates: " + e.getMessage());
+                consecutiveFailures++;
+                System.err.println("[TelegramBot] Error polling updates (Failure " + consecutiveFailures + "/5): " + e.getMessage());
+                if (consecutiveFailures >= 5) {
+                    System.err.println("[TelegramBot] Disabling Telegram integration after 5 consecutive connection failures.");
+                    active = false;
+                    break;
+                }
             }
             try {
                 Thread.sleep(1500);
