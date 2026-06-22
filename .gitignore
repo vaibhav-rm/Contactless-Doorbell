@@ -48,3 +48,9 @@ stored_faces/
 visitor_snapshots/
 !stored_faces/.gitkeep
 !visitor_snapshots/.gitkeep
+
+# Local DB and simulation/binaries
+backend/data/
+ai_device/*.onnx
+ai_device/unknown_visitor.png
+ai_device/simulate_face.txt

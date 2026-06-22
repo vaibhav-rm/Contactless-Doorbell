@@ -40,7 +40,54 @@ last_active_time = 0
 def get_fallback_frame(width=640, height=480):
     """
     Generates a synthetic status frame if the camera stream is offline.
+    Supports file-based face simulation for local testing.
     """
+    sim_file = "simulate_face.txt"
+    if os.path.exists(sim_file):
+        try:
+            with open(sim_file, "r") as f:
+                mode = f.read().strip().lower()
+            
+            # Remove/clear file so it only triggers once
+            try:
+                os.remove(sim_file)
+            except Exception:
+                pass
+                
+            dir_path = os.path.dirname(os.path.abspath(__file__))
+            
+            if mode == "alice":
+                # Load Alice's registered image
+                img_path = os.path.join(dir_path, "../stored_faces/alice_smith_1782085593746.png")
+                if os.path.exists(img_path):
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        return cv2.resize(img, (width, height))
+            elif mode == "unknown":
+                # Load unknown visitor image
+                img_path = os.path.join(dir_path, "unknown_visitor.png")
+                if os.path.exists(img_path):
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        return cv2.resize(img, (width, height))
+            elif mode == "multiple":
+                # Composite Alice and unknown visitor side-by-side
+                img1_path = os.path.join(dir_path, "../stored_faces/alice_smith_1782085593746.png")
+                img2_path = os.path.join(dir_path, "unknown_visitor.png")
+                if os.path.exists(img1_path) and os.path.exists(img2_path):
+                    img1 = cv2.imread(img1_path)
+                    img2 = cv2.imread(img2_path)
+                    if img1 is not None and img2 is not None:
+                        # Resize both to half-width, full-height
+                        hw = width // 2
+                        img1_res = cv2.resize(img1, (hw, height))
+                        img2_res = cv2.resize(img2, (hw, height))
+                        # Concatenate horizontally
+                        return np.hstack((img1_res, img2_res))
+        except Exception as e:
+            print(f"[Main] Error reading face simulation: {e}")
+
+    # Standard fallback grid
     frame = np.zeros((height, width, 3), dtype=np.uint8)
     frame[:, :] = [30, 15, 8] # Deep dark blue background
     
@@ -119,7 +166,7 @@ def video_capture_loop():
     
     while True:
         # Check Proximity Sensor (IR Pin 17 - active LOW)
-        visitor_present = device_ctrl.read_ir_sensor()
+        visitor_present = device_ctrl.read_ir_sensor() or os.path.exists("simulate_face.txt")
         
         if visitor_present:
             last_active_time = time.time()
@@ -130,8 +177,13 @@ def video_capture_loop():
                 device_ctrl.display_oled("VISITOR DETECTED", "SCANNING FACE...")
                 
                 # Start ESP32-CAM Capture
-                cap = open_esp32_cam_stream(CAMERA_SOURCE)
-                if not cap:
+                from device_controller import ON_PI
+                if ON_PI:
+                    cap = open_esp32_cam_stream(CAMERA_SOURCE)
+                else:
+                    print("[Main] SIMULATION MODE active. Skipping camera stream connection.")
+                    cap = None
+                if ON_PI and not cap:
                     print("[Main] WARNING: Camera stream could not be opened. Using fallback feed.")
         
         # State: Awake
@@ -163,14 +215,30 @@ def video_capture_loop():
                 current_time = time.time()
                 
                 if current_time - last_ring_time > cooldown_seconds:
-                    name = detected_names[0]
-                    last_visitor_name = name
+                    # Filter and categorize detected names
+                    residents = [n for n in detected_names if n != "Unknown"]
+                    unknowns_count = detected_names.count("Unknown")
+                    
                     last_ring_time = current_time
                     
-                    if name != "Unknown":
-                        trigger_automatic_unlock(name, processed_frame)
+                    if len(residents) > 0:
+                        # At least one resident is recognized: Auto-unlock
+                        residents_str = ", ".join(residents)
+                        if unknowns_count > 0:
+                            log_name = f"{residents_str} (accompanied by {unknowns_count} Unknown)"
+                        else:
+                            log_name = residents_str
+                        
+                        last_visitor_name = log_name
+                        trigger_automatic_unlock(residents[0], log_name, processed_frame)
                     else:
-                        trigger_unknown_alert(processed_frame)
+                        # ONLY unknown faces are present
+                        log_name = "Unknown"
+                        if unknowns_count > 1:
+                            log_name = f"Unknown x{unknowns_count}"
+                            
+                        last_visitor_name = log_name
+                        trigger_unknown_alert(log_name, processed_frame)
             
             # Handle Sleep timeout (10 seconds without IR/Face trigger)
             if time.time() - last_active_time > 10.0:
@@ -189,10 +257,10 @@ def video_capture_loop():
             # Sleeping: low frequency polling to save Pi CPU
             time.sleep(0.2)
 
-def trigger_automatic_unlock(name, frame):
+def trigger_automatic_unlock(first_resident_name, full_log_name, frame):
     global is_locked
-    print(f"[Main] Authorized resident '{name}' detected! Access granted.")
-    device_ctrl.display_oled("ACCESS GRANTED", f"WELCOME {name.upper()}")
+    print(f"[Main] Authorized resident(s) '{full_log_name}' detected! Access granted.")
+    device_ctrl.display_oled("ACCESS GRANTED", f"WELCOME {first_resident_name.upper()}")
     device_ctrl.set_lock_state(False) # Unlock door (GPIO 18)
     is_locked = False
     
@@ -204,7 +272,7 @@ def trigger_automatic_unlock(name, frame):
         with open(temp_img_path, 'rb') as f:
             files = {'image': (temp_img_path, f, 'image/jpeg')}
             data = {
-                'recognitionResult': name,
+                'recognitionResult': full_log_name,
                 'decision': 'APPROVED',
                 'approvedBy': 'AUTOMATIC'
             }
@@ -218,8 +286,8 @@ def trigger_automatic_unlock(name, frame):
     # Schedule automatic locking
     threading.Thread(target=auto_relock_timer).start()
 
-def trigger_unknown_alert(frame):
-    print("[Main] Unknown face detected. Dispatching alert to Web dashboard and Blynk.")
+def trigger_unknown_alert(name, frame):
+    print(f"[Main] Unknown face(s) '{name}' detected. Dispatching alert to Web dashboard and Blynk.")
     device_ctrl.display_oled("UNKNOWN VISIT", "WAITING FOR ADMIN")
     
     try:
@@ -229,7 +297,7 @@ def trigger_unknown_alert(frame):
         with open(temp_img_path, 'rb') as f:
             files = {'image': (temp_img_path, f, 'image/jpeg')}
             data = {
-                'recognitionResult': 'Unknown',
+                'recognitionResult': name,
                 'decision': 'PENDING',
                 'approvedBy': 'PENDING'
             }

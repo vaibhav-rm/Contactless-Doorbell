@@ -143,9 +143,18 @@ export default function App() {
   const [newUserImage, setNewUserImage] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Allow List Registration Modal states
+  const [isAllowListModalOpen, setIsAllowListModalOpen] = useState(false);
+  const [selectedVisitorLog, setSelectedVisitorLog] = useState<AccessLog | null>(null);
+  const [allowListName, setAllowListName] = useState('');
+  const [allowListRole, setAllowListRole] = useState('RESIDENT');
+
   // Connection State
   const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Store processed visitor alerts to prevent duplicate sound chimes
+  const processedAlertIds = useRef<Set<number>>(new Set());
 
   // Stream connection state
   const [streamError, setStreamError] = useState(false);
@@ -222,17 +231,26 @@ export default function App() {
 
   // WebSockets setup
   useEffect(() => {
+    let active = true;
+    let ws: WebSocket | null = null;
+
     const connectWS = () => {
+      if (!active) return;
       setWsStatus('connecting');
-      const ws = new WebSocket(WS_URL);
+      ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (!active) {
+          ws?.close();
+          return;
+        }
         setWsStatus('connected');
         console.log("WebSocket connected to:", WS_URL);
       };
 
       ws.onmessage = (event) => {
+        if (!active) return;
         try {
           const message = JSON.parse(event.data);
           console.log("WebSocket message received:", message);
@@ -258,7 +276,11 @@ export default function App() {
                 if (prev.some(l => l.id === newLog.id)) return prev;
                 return [newLog, ...prev];
               });
-              playDoorbellChime();
+              // Deduplicate chime sound using processedAlertIds
+              if (!processedAlertIds.current.has(newLog.id)) {
+                processedAlertIds.current.add(newLog.id);
+                playDoorbellChime();
+              }
             } else if (newLog.decision === 'APPROVED') {
               playActionTone('success');
             }
@@ -277,6 +299,7 @@ export default function App() {
       };
 
       ws.onclose = () => {
+        if (!active) return;
         setWsStatus('disconnected');
         console.log("WebSocket disconnected. Retrying in 5s...");
         setTimeout(connectWS, 5000);
@@ -284,15 +307,16 @@ export default function App() {
 
       ws.onerror = (err) => {
         console.error("WebSocket error:", err);
-        ws.close();
+        ws?.close();
       };
     };
 
     connectWS();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      active = false;
+      if (ws) {
+        ws.close();
       }
     };
   }, []);
@@ -371,6 +395,37 @@ export default function App() {
       }
     } catch (err) {
       console.error("Error deleting user:", err);
+    }
+  };
+
+  // Allow List Submission
+  const handleAddToAllowListSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVisitorLog || !allowListName) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('name', allowListName);
+      formData.append('role', allowListRole);
+      formData.append('visitorLogId', String(selectedVisitorLog.id));
+
+      const res = await fetch(`${API_BASE}/users/add-from-visitor`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        setIsAllowListModalOpen(false);
+        setSelectedVisitorLog(null);
+        setAllowListName('');
+        fetchData();
+        playActionTone('success');
+      } else {
+        const errData = await res.json();
+        alert("Error adding to allow list: " + errData.error);
+      }
+    } catch (err) {
+      console.error("Error adding visitor to allow list:", err);
     }
   };
 
@@ -523,8 +578,6 @@ export default function App() {
         <div className="p-8 flex-1">
           
           {/* Pending Alerts Banner */}
-          {pendingAlerts.length > 0 && (
-            <div className="mb-6 animate-bounce">
               {pendingAlerts.map(alert => (
                 <div key={alert.id} className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between shadow-lg glow-primary">
                   <div className="flex items-center gap-4">
@@ -534,24 +587,33 @@ export default function App() {
                       <p className="text-xs text-amber-300/80">Awaiting your approval to unlock the door</p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
                     <button 
                       onClick={() => handleVisitorDecision(alert.id, 'approve')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-md glow-green"
                     >
                       <Check className="w-3.5 h-3.5" /> Approve Entry
                     </button>
                     <button 
                       onClick={() => handleVisitorDecision(alert.id, 'reject')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition shadow"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition shadow-md glow-red"
                     >
                       <X className="w-3.5 h-3.5" /> Deny
                     </button>
+                    {alert.recognitionResult === 'Unknown' && (
+                      <button 
+                        onClick={() => {
+                          setSelectedVisitorLog(alert);
+                          setIsAllowListModalOpen(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-bold transition shadow-md glow-primary"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" /> Add to Allow List
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
-            </div>
-          )}
 
           {/* Tab 1: Dashboard Overview */}
           {activeTab === 'dashboard' && (
@@ -571,14 +633,17 @@ export default function App() {
                       LIVE
                     </span>
                   </div>
-                  <div className="aspect-video bg-slate-950 flex items-center justify-center relative">
+                  <div className="aspect-video bg-slate-950 flex items-center justify-center relative overflow-hidden">
                     {!streamError ? (
-                      <img 
-                        src={`http://${hostname}:8081/video_feed?key=${streamKey}`} 
-                        alt="Live Stream Feed" 
-                        className="w-full h-full object-cover"
-                        onError={() => setStreamError(true)}
-                      />
+                      <>
+                        <img 
+                          src={`http://${hostname}:8081/video_feed?key=${streamKey}`} 
+                          alt="Live Stream Feed" 
+                          className="w-full h-full object-cover"
+                          onError={() => setStreamError(true)}
+                        />
+                        <div className="scan-line" />
+                      </>
                     ) : (
                       <div className="stream-offline-placeholder flex flex-col items-center gap-2 text-slate-500 p-8 text-center">
                         <Camera className="w-12 h-12 stroke-[1.5] text-slate-600" />
@@ -766,6 +831,7 @@ export default function App() {
                       <th className="px-6 py-4">Identity</th>
                       <th className="px-6 py-4">Decision</th>
                       <th className="px-6 py-4">Approved By</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
@@ -807,6 +873,50 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                             {log.approvedBy || '-'}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {log.decision === 'PENDING' ? (
+                              <div className="flex gap-2 justify-end">
+                                <button 
+                                  onClick={() => handleVisitorDecision(log.id, 'approve')}
+                                  className="p-1.5 text-emerald-400 hover:text-white hover:bg-emerald-600/30 rounded-lg transition"
+                                  title="Approve Entry"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => handleVisitorDecision(log.id, 'reject')}
+                                  className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600/30 rounded-lg transition"
+                                  title="Deny Entry"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                                {log.recognitionResult === 'Unknown' && (
+                                  <button 
+                                    onClick={() => {
+                                      setSelectedVisitorLog(log);
+                                      setIsAllowListModalOpen(true);
+                                    }}
+                                    className="p-1.5 text-violet-400 hover:text-white hover:bg-violet-600/30 rounded-lg transition"
+                                    title="Add to Allow List"
+                                  >
+                                    <UserCheck className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              log.recognitionResult === 'Unknown' && (
+                                <button 
+                                  onClick={() => {
+                                    setSelectedVisitorLog(log);
+                                    setIsAllowListModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white rounded-lg text-xs font-bold border border-violet-500/20 transition"
+                                >
+                                  <UserCheck className="w-3.5 h-3.5" /> Register
+                                </button>
+                              )
+                            )}
                           </td>
                         </tr>
                       ))
@@ -1075,6 +1185,106 @@ export default function App() {
 
         </div>
       </main>
+
+      {/* Allow List Registration Modal */}
+      {isAllowListModalOpen && selectedVisitorLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#020617]/85 backdrop-blur-sm transition-all duration-300 animate-fadeIn">
+          <div className="relative w-full max-w-md p-6 glass-panel rounded-2xl border border-slate-700 shadow-2xl overflow-hidden animate-slideUp">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-emerald-400" />
+                  Add to Allow List
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">Register this visitor's face as an authorized resident</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsAllowListModalOpen(false);
+                  setSelectedVisitorLog(null);
+                  setAllowListName('');
+                }}
+                className="p-1.5 text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4 p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 mb-6">
+              <div className="w-16 h-16 bg-slate-950 rounded-lg overflow-hidden border border-slate-700 flex-shrink-0">
+                {selectedVisitorLog.imagePath ? (
+                  <img 
+                    src={`${STATIC_BASE}/visitor_snapshots/${selectedVisitorLog.imagePath}`} 
+                    alt="Visitor Face" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&h=100&q=80';
+                    }}
+                  />
+                ) : (
+                  <Camera className="w-6 h-6 text-slate-500 m-auto" />
+                )}
+              </div>
+              <div>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                  UNKNOWN VISIT
+                </span>
+                <p className="text-xs text-slate-400 mt-1.5 font-mono">
+                  {new Date(String(selectedVisitorLog.timestamp)).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleAddToAllowListSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1 tracking-wide uppercase">Full Name</label>
+                <input 
+                  type="text" 
+                  value={allowListName}
+                  onChange={(e) => setAllowListName(e.target.value)}
+                  placeholder="e.g. Vaibhav Rathod"
+                  className="w-full bg-[#070b19] border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1 tracking-wide uppercase">Role / Classification</label>
+                <select
+                  value={allowListRole}
+                  onChange={(e) => setAllowListRole(e.target.value)}
+                  className="w-full bg-[#070b19] border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition"
+                >
+                  <option value="RESIDENT">Resident</option>
+                  <option value="ADMIN">Administrator</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setIsAllowListModalOpen(false);
+                    setSelectedVisitorLog(null);
+                    setAllowListName('');
+                  }}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-lg text-sm transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition shadow-lg glow-green"
+                >
+                  Add & Unlock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
