@@ -43,7 +43,11 @@ public class TelegramBotService {
         this.accessLogRepository = accessLogRepository;
         this.webSocketHandler = webSocketHandler;
         this.objectMapper = objectMapper;
-        this.restTemplate = new RestTemplate();
+        
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(5000);
+        this.restTemplate = new RestTemplate(factory);
     }
 
     @PostConstruct
@@ -197,40 +201,42 @@ public class TelegramBotService {
 
     public void sendVisitorNotification(AccessLog log) {
         if (!active) return;
-        try {
-            String url = String.format("https://api.telegram.org/bot%s/sendPhoto", botToken);
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                String url = String.format("https://api.telegram.org/bot%s/sendPhoto", botToken);
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("chat_id", chatId);
+                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+                body.add("chat_id", chatId);
 
-            File imageFile = new File("../visitor_snapshots/" + log.getImagePath());
-            if (imageFile.exists()) {
-                body.add("photo", new FileSystemResource(imageFile));
-            } else {
-                System.out.println("[TelegramBot] Snapshot file not found: " + imageFile.getAbsolutePath());
-                return;
+                File imageFile = new File("../visitor_snapshots/" + log.getImagePath());
+                if (imageFile.exists()) {
+                    body.add("photo", new FileSystemResource(imageFile));
+                } else {
+                    System.out.println("[TelegramBot] Snapshot file not found: " + imageFile.getAbsolutePath());
+                    return;
+                }
+
+                String caption = String.format(
+                        "🔔 *Unknown Visitor Detected!*\nTime: *%s*\nStatus: *PENDING APPROVAL*",
+                        log.getTimestamp().toString()
+                );
+                body.add("caption", caption);
+                body.add("parse_mode", "Markdown");
+
+                String replyMarkup = String.format(
+                        "{\"inline_keyboard\": [[{\"text\":\"Approve ✅\",\"callback_data\":\"APPROVE_%d\"},{\"text\":\"Deny ❌\",\"callback_data\":\"DENY_%d\"}]]}",
+                        log.getId(), log.getId()
+                );
+                body.add("reply_markup", replyMarkup);
+
+                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+                String response = restTemplate.postForObject(url, requestEntity, String.class);
+                System.out.println("[TelegramBot] Notification sent successfully! Response: " + response);
+            } catch (Exception e) {
+                System.err.println("[TelegramBot] Error sending notification: " + e.getMessage());
             }
-
-            String caption = String.format(
-                    "🔔 *Unknown Visitor Detected!*\nTime: *%s*\nStatus: *PENDING APPROVAL*",
-                    log.getTimestamp().toString()
-            );
-            body.add("caption", caption);
-            body.add("parse_mode", "Markdown");
-
-            String replyMarkup = String.format(
-                    "{\"inline_keyboard\": [[{\"text\":\"Approve ✅\",\"callback_data\":\"APPROVE_%d\"},{\"text\":\"Deny ❌\",\"callback_data\":\"DENY_%d\"}]]}",
-                    log.getId(), log.getId()
-            );
-            body.add("reply_markup", replyMarkup);
-
-            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            String response = restTemplate.postForObject(url, requestEntity, String.class);
-            System.out.println("[TelegramBot] Notification sent successfully! Response: " + response);
-        } catch (Exception e) {
-            System.err.println("[TelegramBot] Error sending notification: " + e.getMessage());
-        }
+        });
     }
 }
