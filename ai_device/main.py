@@ -131,6 +131,61 @@ def get_standby_frame(width=640, height=480):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (16, 185, 129), 1)
     return frame
 
+class HTTPVideoCapture:
+    """
+    Fallback class that implements OpenCV's VideoCapture interface using 
+    requests and manual MJPEG stream parsing. Bypasses FFMPEG library load issues on Pi.
+    """
+    def __init__(self, url):
+        self.url = url
+        self.response = None
+        self.bytes_buf = bytearray()
+        self.is_opened = False
+        self.open()
+
+    def open(self):
+        try:
+            self.response = requests.get(self.url, stream=True, timeout=5)
+            self.is_opened = (self.response.status_code == 200)
+        except Exception as e:
+            self.is_opened = False
+
+    def isOpened(self):
+        return self.is_opened
+
+    def read(self):
+        if not self.is_opened or not self.response:
+            return False, None
+        try:
+            # We read in chunks. MJPEG streams contain multiple JPEG frames.
+            # Each JPEG frame starts with b'\xff\xd8' and ends with b'\xff\xd9'.
+            for chunk in self.response.iter_content(chunk_size=4096):
+                if not chunk:
+                    break
+                self.bytes_buf.extend(chunk)
+                
+                a = self.bytes_buf.find(b'\xff\xd8')
+                b = self.bytes_buf.find(b'\xff\xd9')
+                if a != -1 and b != -1 and b > a:
+                    jpg = self.bytes_buf[a:b+2]
+                    # Keep the remainder of the buffer for the next frame
+                    del self.bytes_buf[0:b+2]
+                    frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        return True, frame
+        except Exception as e:
+            print(f"[HTTPVideoCapture] Error reading stream: {e}")
+            self.is_opened = False
+        return False, None
+
+    def release(self):
+        if self.response:
+            try:
+                self.response.close()
+            except Exception:
+                pass
+        self.is_opened = False
+
 def open_esp32_cam_stream(base_url):
     """
     Attempts multiple standard ESP32-CAM streaming endpoints to ensure connection.
@@ -159,6 +214,7 @@ def open_esp32_cam_stream(base_url):
     except Exception as parse_err:
         print(f"[Main] Error parsing base URL '{base_url}': {parse_err}")
 
+    # 1. First try OpenCV's standard VideoCapture (runs if FFMPEG behaves)
     for url in endpoints:
         print(f"[Main] Attempting connection to stream URL: {url}")
         try:
@@ -168,6 +224,19 @@ def open_esp32_cam_stream(base_url):
                 return cap
         except Exception as e:
             print(f"[Main] Connection failed for {url}: {e}")
+
+    # 2. Fallback: Try pure python HTTP stream reader (resilient to FFMPEG/GStreamer linkage issues)
+    print("[Main] OpenCV VideoCapture failed to load the network stream. Attempting HTTP requests fallback...")
+    for url in endpoints:
+        print(f"[Main] Attempting HTTP requests fallback stream URL: {url}")
+        try:
+            cap = HTTPVideoCapture(url)
+            if cap.isOpened():
+                print(f"[Main] Successfully connected to video stream via HTTP fallback: {url}")
+                return cap
+        except Exception as e:
+            print(f"[Main] HTTP fallback failed for {url}: {e}")
+            
     return None
 
 def video_capture_loop():
