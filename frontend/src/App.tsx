@@ -452,8 +452,8 @@ export default function App() {
   // Simulator Actions (Simulates Hardware Events)
   const triggerSimulatedVisitor = async (type: 'authorized' | 'unauthorized') => {
     try {
-      // For authorized, we will pick the first registered user's name, or default to "Vaibhav"
-      const name = type === 'authorized' ? (users[0]?.name || 'Vaibhav') : 'Unknown';
+      // For authorized, we will pick the first registered user's name, or default to "Jane Doe"
+      const name = type === 'authorized' ? (users[0]?.name || 'Jane Doe') : 'Unknown';
       const decision = type === 'authorized' ? 'APPROVED' : 'PENDING';
       const approvedBy = type === 'authorized' ? 'AUTOMATIC' : 'PENDING';
 
@@ -1292,7 +1292,7 @@ export default function App() {
                   type="text" 
                   value={allowListName}
                   onChange={(e) => setAllowListName(e.target.value)}
-                  placeholder="e.g. Vaibhav Rathod"
+                  placeholder="e.g. Jane Doe"
                   className="w-full bg-[#070b19] border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition"
                   required
                 />
