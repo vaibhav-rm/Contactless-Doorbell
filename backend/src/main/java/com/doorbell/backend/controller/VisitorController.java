@@ -27,15 +27,18 @@ public class VisitorController {
     private final AccessLogRepository accessLogRepository;
     private final DoorbellWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
+    private final com.doorbell.backend.service.TelegramBotService telegramBotService;
 
     private static final String SNAPSHOT_DIR = "../visitor_snapshots/";
 
     public VisitorController(AccessLogRepository accessLogRepository, 
                              DoorbellWebSocketHandler webSocketHandler,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             com.doorbell.backend.service.TelegramBotService telegramBotService) {
         this.accessLogRepository = accessLogRepository;
         this.webSocketHandler = webSocketHandler;
         this.objectMapper = objectMapper;
+        this.telegramBotService = telegramBotService;
 
         // Ensure snapshot directory exists
         File dir = new File(SNAPSHOT_DIR);
@@ -60,7 +63,8 @@ public class VisitorController {
             @RequestParam("recognitionResult") String recognitionResult,
             @RequestParam("decision") String decision,
             @RequestParam("approvedBy") String approvedBy,
-            @RequestParam(value = "image", required = false) MultipartFile file) {
+            @RequestParam(value = "image", required = false) MultipartFile file,
+            @RequestParam(value = "video", required = false) MultipartFile videoFile) {
 
         String fileName = null;
         if (file != null && !file.isEmpty()) {
@@ -78,12 +82,29 @@ public class VisitorController {
             }
         }
 
+        String videoName = null;
+        if (videoFile != null && !videoFile.isEmpty()) {
+            try {
+                String fileExtension = ".mp4";
+                String originalFilename = videoFile.getOriginalFilename();
+                if (originalFilename != null && originalFilename.contains(".")) {
+                    fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
+                }
+                videoName = "video_" + System.currentTimeMillis() + fileExtension;
+                Path path = Paths.get(SNAPSHOT_DIR + videoName);
+                Files.write(path, videoFile.getBytes());
+            } catch (IOException e) {
+                System.err.println("Could not save visitor video clip: " + e.getMessage());
+            }
+        }
+
         AccessLog log = AccessLog.builder()
                 .timestamp(LocalDateTime.now())
                 .recognitionResult(recognitionResult)
                 .decision(decision)
                 .approvedBy(approvedBy)
                 .imagePath(fileName)
+                .videoPath(videoName)
                 .build();
 
         AccessLog savedLog = accessLogRepository.save(log);
@@ -95,6 +116,11 @@ public class VisitorController {
             webSocketHandler.broadcast(wsMessage);
         } catch (Exception e) {
             System.err.println("Could not broadcast WS visitor alert: " + e.getMessage());
+        }
+
+        // Notify Telegram if visitor is pending approval
+        if ("PENDING".equals(savedLog.getDecision())) {
+            telegramBotService.sendVisitorNotification(savedLog);
         }
 
         return ResponseEntity.status(HttpStatus.CREATED).body(savedLog);

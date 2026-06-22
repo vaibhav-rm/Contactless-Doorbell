@@ -143,7 +143,7 @@ void setup() {
   
   // init with high specs to pre-allocate larger buffers
   if(psramFound()){
-    config.frame_size = FRAMESIZE_SVGA; // 800x600 resolution
+    config.frame_size = FRAMESIZE_VGA; // 640x480 resolution (prevents brownout resets)
     config.jpeg_quality = 12;
     config.fb_count = 2;
   } else {
@@ -169,11 +169,12 @@ void setup() {
   Serial.println("");
   Serial.println("WiFi connected");
   
+  delay(1000); // Allow power to stabilize before starting web server
   startCameraServer();
 
-  Serial.print("Camera Stream Ready! Go to: http://");
+  Serial.print("Camera Stream Ready! Stream URL: http://");
   Serial.print(WiFi.localIP());
-  Serial.println();
+  Serial.println("/stream");
 }
 
 void loop() {

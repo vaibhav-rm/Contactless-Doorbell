@@ -20,7 +20,11 @@ import {
   Clock, 
   Download, 
   Sliders, 
-  UserCheck
+  UserCheck,
+  Sun,
+  Moon,
+  Play,
+  Film
 } from 'lucide-react';
 
 // API Configuration
@@ -41,6 +45,7 @@ interface AccessLog {
   id: number;
   timestamp: String;
   imagePath: String;
+  videoPath?: String;
   recognitionResult: String;
   decision: String;
   approvedBy: String;
@@ -121,6 +126,21 @@ const playActionTone = (type: 'success' | 'warn') => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'users' | 'simulator'>('dashboard');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('isDarkMode');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [selectedDetailLog, setSelectedDetailLog] = useState<AccessLog | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('isDarkMode', JSON.stringify(isDarkMode));
+    if (isDarkMode) {
+      document.documentElement.classList.remove('light-theme');
+    } else {
+      document.documentElement.classList.add('light-theme');
+    }
+  }, [isDarkMode]);
+
   const [isLocked, setIsLocked] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<AccessLog[]>([]);
@@ -562,6 +582,13 @@ export default function App() {
           </h2>
           <div className="flex items-center gap-4">
             <button 
+              onClick={() => setIsDarkMode(!isDarkMode)} 
+              className="p-2 text-slate-400 hover:text-white bg-slate-800/60 rounded-lg border border-slate-700 transition"
+              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />}
+            </button>
+            <button 
               onClick={fetchData} 
               className="p-2 text-slate-400 hover:text-white bg-slate-800/60 rounded-lg border border-slate-700 transition"
               title="Refresh Data"
@@ -778,7 +805,11 @@ export default function App() {
                       </div>
                     ) : (
                       recentLogs.map((log) => (
-                        <div key={log.id} className="p-3 bg-slate-900/40 border border-slate-800/50 rounded-xl flex items-center justify-between">
+                        <div 
+                          key={log.id} 
+                          onClick={() => setSelectedDetailLog(log)}
+                          className="p-3 bg-slate-900/40 border border-slate-800/50 rounded-xl flex items-center justify-between cursor-pointer hover:bg-slate-800/30 transition-all duration-200"
+                        >
                           <div className="flex items-center gap-3">
                             <div className={`p-1.5 rounded-lg ${log.decision === 'APPROVED' ? 'bg-emerald-500/10 text-emerald-500' : log.decision === 'REJECTED' ? 'bg-rose-500/10 text-rose-500' : 'bg-amber-500/10 text-amber-500'}`}>
                               {log.decision === 'APPROVED' ? <UserCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
@@ -843,9 +874,13 @@ export default function App() {
                       </tr>
                     ) : (
                       logs.map((log) => (
-                        <tr key={log.id} className="hover:bg-slate-900/20 transition-all">
+                        <tr 
+                          key={log.id} 
+                          onClick={() => setSelectedDetailLog(log)}
+                          className="hover:bg-slate-900/20 transition-all cursor-pointer"
+                        >
                           <td className="px-6 py-3">
-                            <div className="w-12 h-12 bg-slate-950 rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
+                            <div className="relative w-12 h-12 bg-slate-950 rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
                               {log.imagePath ? (
                                 <img 
                                   src={`${STATIC_BASE}/visitor_snapshots/${log.imagePath}`} 
@@ -857,6 +892,11 @@ export default function App() {
                                 />
                               ) : (
                                 <Camera className="w-5 h-5 text-slate-600" />
+                              )}
+                              {log.videoPath && (
+                                <div className="absolute bottom-0.5 right-0.5 bg-violet-600 text-white p-0.5 rounded flex items-center justify-center" title="Video clip available">
+                                  <Film className="w-2.5 h-2.5" />
+                                </div>
                               )}
                             </div>
                           </td>
@@ -878,14 +918,20 @@ export default function App() {
                             {log.decision === 'PENDING' ? (
                               <div className="flex gap-2 justify-end">
                                 <button 
-                                  onClick={() => handleVisitorDecision(log.id, 'approve')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleVisitorDecision(log.id, 'approve');
+                                  }}
                                   className="p-1.5 text-emerald-400 hover:text-white hover:bg-emerald-600/30 rounded-lg transition"
                                   title="Approve Entry"
                                 >
                                   <Check className="w-4 h-4" />
                                 </button>
                                 <button 
-                                  onClick={() => handleVisitorDecision(log.id, 'reject')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleVisitorDecision(log.id, 'reject');
+                                  }}
                                   className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600/30 rounded-lg transition"
                                   title="Deny Entry"
                                 >
@@ -893,7 +939,8 @@ export default function App() {
                                 </button>
                                 {log.recognitionResult === 'Unknown' && (
                                   <button 
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       setSelectedVisitorLog(log);
                                       setIsAllowListModalOpen(true);
                                     }}
@@ -907,7 +954,8 @@ export default function App() {
                             ) : (
                               log.recognitionResult === 'Unknown' && (
                                 <button 
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setSelectedVisitorLog(log);
                                     setIsAllowListModalOpen(true);
                                   }}
@@ -1282,6 +1330,124 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Visitor Activity Detail Modal */}
+      {selectedDetailLog && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-300 animate-fadeIn">
+          <div className={`relative w-full max-w-2xl p-6 rounded-2xl border shadow-2xl overflow-hidden animate-slideUp transition-theme ${isDarkMode ? 'bg-[#0a0f20]/95 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <button 
+              onClick={() => setSelectedDetailLog(null)}
+              className={`absolute top-4 right-4 p-2 rounded-xl transition ${isDarkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-555 hover:text-slate-900'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <History className="w-5 h-5 text-violet-500" /> Visitor Activity Detail
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Visual media */}
+              <div className="flex flex-col gap-3">
+                <div className={`relative rounded-xl overflow-hidden border aspect-video flex items-center justify-center ${isDarkMode ? 'bg-slate-955 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+                  {selectedDetailLog.videoPath ? (
+                    <video 
+                      src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.videoPath}`}
+                      controls
+                      autoPlay
+                      className="w-full h-full object-contain"
+                    />
+                  ) : selectedDetailLog.imagePath ? (
+                    <img 
+                      src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.imagePath}`}
+                      alt="Visitor Snapshot"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Camera className="w-12 h-12 text-slate-400" />
+                  )}
+                  {selectedDetailLog.videoPath && (
+                    <span className="absolute top-2 left-2 px-2 py-0.5 bg-violet-600 text-white rounded text-[10px] font-bold flex items-center gap-1">
+                      <Film className="w-3 h-3" /> CLIP RECORDED
+                    </span>
+                  )}
+                </div>
+                
+                {selectedDetailLog.videoPath && selectedDetailLog.imagePath && (
+                  <div className="w-full">
+                    <p className={`text-[10px] font-bold mb-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>SNAPSHOT</p>
+                    <div className={`rounded-lg overflow-hidden border max-h-24 ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+                      <img 
+                        src={`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.imagePath}`}
+                        alt="Visitor Snapshot"
+                        className="w-full h-24 object-cover cursor-pointer"
+                        onClick={() => window.open(`${STATIC_BASE}/visitor_snapshots/${selectedDetailLog.imagePath}`, '_blank')}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Activity Info */}
+              <div className="flex flex-col justify-between">
+                <div className="space-y-4">
+                  <div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Identity</span>
+                    <p className={`text-base font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{selectedDetailLog.recognitionResult}</p>
+                  </div>
+
+                  <div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Timestamp</span>
+                    <p className={`text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{new Date(String(selectedDetailLog.timestamp)).toLocaleString()}</p>
+                  </div>
+
+                  <div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Decision</span>
+                    <div>
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-extrabold mt-1 ${
+                        selectedDetailLog.decision === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-300' :
+                        selectedDetailLog.decision === 'REJECTED' ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {selectedDetailLog.decision}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Approved/Handled By</span>
+                    <p className={`text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetailLog.approvedBy || '-'}</p>
+                  </div>
+                </div>
+
+                {selectedDetailLog.decision === 'PENDING' && (
+                  <div className={`mt-6 pt-4 border-t flex gap-3 ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVisitorDecision(selectedDetailLog.id, 'approve');
+                        setSelectedDetailLog(prev => prev ? { ...prev, decision: 'APPROVED', approvedBy: 'DASHBOARD' } : null);
+                      }}
+                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                    >
+                      <Check className="w-4 h-4" /> Approve
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVisitorDecision(selectedDetailLog.id, 'reject');
+                        setSelectedDetailLog(prev => prev ? { ...prev, decision: 'REJECTED', approvedBy: 'DASHBOARD' } : null);
+                      }}
+                      className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                    >
+                      <X className="w-4 h-4" /> Deny
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

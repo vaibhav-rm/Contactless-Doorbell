@@ -35,6 +35,9 @@ public class AccessLog {
     @Column(name = "approved_by")
     private String approvedBy; // "AUTOMATIC" (face matched), "DASHBOARD" (manual button click), "SYSTEM"
 
+    @Column(name = "video_path")
+    private String videoPath; // Path to visitor video clip
+
     @PrePersist
     protected void onCreate() {
         if (timestamp == null) {

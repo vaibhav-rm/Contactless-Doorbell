@@ -5,6 +5,7 @@ import json
 import threading
 import requests
 import numpy as np
+import collections
 from flask import Flask, Response
 import websocket
 
@@ -17,8 +18,8 @@ app = Flask(__name__)
 BACKEND_HTTP_URL = "http://localhost:8080/api"
 BACKEND_WS_URL = "ws://localhost:8080/ws/doorbell"
 
-# ESP32-CAM camera IP (the user's ESP32-CAM is running on 192.168.0.101)
-CAMERA_SOURCE = "http://192.168.0.101:81/stream"
+# ESP32-CAM camera IP (the user's ESP32-CAM is running on 192.168.0.110)
+CAMERA_SOURCE = "http://192.168.0.110/stream"
 STREAM_PORT = 8081
 
 # Blynk IoT Cloud Integration
@@ -36,6 +37,7 @@ system_state = "SLEEPING" # "SLEEPING" or "AWAKE"
 last_visitor_name = "None"
 is_locked = True
 last_active_time = 0
+frame_buffer = collections.deque(maxlen=100) # stores last 100 processed frames (~5 seconds at 20fps)
 
 def get_fallback_frame(width=640, height=480):
     """
@@ -133,14 +135,30 @@ def open_esp32_cam_stream(base_url):
     """
     Attempts multiple standard ESP32-CAM streaming endpoints to ensure connection.
     """
-    endpoints = [
-        base_url,
-        base_url + "/stream",
-        base_url.rstrip('/') + ":81/stream",
-        base_url + "/mjpeg",
-        base_url + "/video"
-    ]
+    # Start with the configured base_url
+    endpoints = [base_url]
     
+    # Extract host/IP to build fallback URLs dynamically
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(base_url)
+        host = parsed.hostname
+        scheme = parsed.scheme or "http"
+        if host:
+            fallback_endpoints = [
+                f"{scheme}://{host}:81/stream",
+                f"{scheme}://{host}/stream",
+                f"{scheme}://{host}:81/",
+                f"{scheme}://{host}/",
+                f"{scheme}://{host}/mjpeg",
+                f"{scheme}://{host}/video"
+            ]
+            for ep in fallback_endpoints:
+                if ep not in endpoints:
+                    endpoints.append(ep)
+    except Exception as parse_err:
+        print(f"[Main] Error parsing base URL '{base_url}': {parse_err}")
+
     for url in endpoints:
         print(f"[Main] Attempting connection to stream URL: {url}")
         try:
@@ -175,6 +193,7 @@ def video_capture_loop():
                 system_state = "AWAKE"
                 device_ctrl.set_display_power(True)
                 device_ctrl.display_oled("VISITOR DETECTED", "SCANNING FACE...")
+                frame_buffer.clear()
                 
                 # Start ESP32-CAM Capture
                 from device_controller import ON_PI
@@ -209,6 +228,9 @@ def video_capture_loop():
             with frame_lock:
                 latest_frame = processed_frame.copy()
                 
+            # Store frame in the rolling buffer
+            frame_buffer.append(processed_frame.copy())
+                
             # Handle Face Match Decisions
             if len(detected_names) > 0:
                 last_active_time = time.time() # Reset sleep timer
@@ -221,6 +243,10 @@ def video_capture_loop():
                     
                     last_ring_time = current_time
                     
+                    # Extract rolling buffer frames for video clip
+                    video_frames = list(frame_buffer)
+                    frame_buffer.clear() # Reset for next sequence
+                    
                     if len(residents) > 0:
                         # At least one resident is recognized: Auto-unlock
                         residents_str = ", ".join(residents)
@@ -230,7 +256,7 @@ def video_capture_loop():
                             log_name = residents_str
                         
                         last_visitor_name = log_name
-                        trigger_automatic_unlock(residents[0], log_name, processed_frame)
+                        trigger_automatic_unlock(residents[0], log_name, processed_frame, video_frames)
                     else:
                         # ONLY unknown faces are present
                         log_name = "Unknown"
@@ -238,7 +264,7 @@ def video_capture_loop():
                             log_name = f"Unknown x{unknowns_count}"
                             
                         last_visitor_name = log_name
-                        trigger_unknown_alert(log_name, processed_frame)
+                        trigger_unknown_alert(log_name, processed_frame, video_frames)
             
             # Handle Sleep timeout (10 seconds without IR/Face trigger)
             if time.time() - last_active_time > 10.0:
@@ -247,6 +273,7 @@ def video_capture_loop():
                 device_ctrl.display_oled("SYSTEM STANDBY", "")
                 time.sleep(1.0)
                 device_ctrl.set_display_power(False) # Turn off SSD1306 OLED panel
+                frame_buffer.clear()
                 
                 if cap is not None:
                     cap.release()
@@ -257,56 +284,77 @@ def video_capture_loop():
             # Sleeping: low frequency polling to save Pi CPU
             time.sleep(0.2)
 
-def trigger_automatic_unlock(first_resident_name, full_log_name, frame):
+def log_visitor_event_async(recognition_result, decision, approved_by, frame, video_frames):
+    def run():
+        try:
+            # 1. Save snapshot image
+            temp_img_path = f"temp_snap_{int(time.time())}.jpg"
+            cv2.imwrite(temp_img_path, frame)
+            
+            # 2. Save video clip if frames exist
+            temp_vid_path = None
+            if video_frames:
+                temp_vid_path = f"temp_vid_{int(time.time())}.mp4"
+                height, width, _ = video_frames[0].shape
+                # Use standard 'mp4v' codec for MP4 files
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(temp_vid_path, fourcc, 20.0, (width, height))
+                for f in video_frames:
+                    out.write(f)
+                out.release()
+            
+            # 3. Build multipart request
+            files = {}
+            f_img = open(temp_img_path, 'rb')
+            files['image'] = (temp_img_path, f_img, 'image/jpeg')
+            
+            f_vid = None
+            if temp_vid_path and os.path.exists(temp_vid_path):
+                f_vid = open(temp_vid_path, 'rb')
+                files['video'] = (temp_vid_path, f_vid, 'video/mp4')
+                
+            data = {
+                'recognitionResult': recognition_result,
+                'decision': decision,
+                'approvedBy': approved_by
+            }
+            
+            print(f"[Main Async Log] Posting log for {recognition_result}...")
+            res = requests.post(f"{BACKEND_HTTP_URL}/visitors/ring", data=data, files=files)
+            print(f"[Main Async Log] Completed. Status: {res.status_code}")
+            
+            # Close files and clean up
+            f_img.close()
+            os.remove(temp_img_path)
+            
+            if f_vid:
+                f_vid.close()
+                os.remove(temp_vid_path)
+                
+        except Exception as e:
+            print(f"[Main Async Log] Error in async log: {e}")
+            
+    threading.Thread(target=run, daemon=True).start()
+
+def trigger_automatic_unlock(first_resident_name, full_log_name, frame, video_frames):
     global is_locked
     print(f"[Main] Authorized resident(s) '{full_log_name}' detected! Access granted.")
     device_ctrl.display_oled("ACCESS GRANTED", f"WELCOME {first_resident_name.upper()}")
     device_ctrl.set_lock_state(False) # Unlock door (GPIO 18)
     is_locked = False
     
-    # Save snapshot and record log
-    try:
-        temp_img_path = "temp_auth.jpg"
-        cv2.imwrite(temp_img_path, frame)
-        
-        with open(temp_img_path, 'rb') as f:
-            files = {'image': (temp_img_path, f, 'image/jpeg')}
-            data = {
-                'recognitionResult': full_log_name,
-                'decision': 'APPROVED',
-                'approvedBy': 'AUTOMATIC'
-            }
-            res = requests.post(f"{BACKEND_HTTP_URL}/visitors/ring", data=data, files=files)
-            print("[Main] Event logged to database status:", res.status_code)
-            
-        os.remove(temp_img_path)
-    except Exception as e:
-        print(f"[Main] Failed to log automatic entry log: {e}")
+    # Save snapshot, record log, and video asynchronously
+    log_visitor_event_async(full_log_name, 'APPROVED', 'AUTOMATIC', frame, video_frames)
         
     # Schedule automatic locking
     threading.Thread(target=auto_relock_timer).start()
 
-def trigger_unknown_alert(name, frame):
+def trigger_unknown_alert(name, frame, video_frames):
     print(f"[Main] Unknown face(s) '{name}' detected. Dispatching alert to Web dashboard and Blynk.")
     device_ctrl.display_oled("UNKNOWN VISIT", "WAITING FOR ADMIN")
     
-    try:
-        temp_img_path = "temp_unknown.jpg"
-        cv2.imwrite(temp_img_path, frame)
-        
-        with open(temp_img_path, 'rb') as f:
-            files = {'image': (temp_img_path, f, 'image/jpeg')}
-            data = {
-                'recognitionResult': name,
-                'decision': 'PENDING',
-                'approvedBy': 'PENDING'
-            }
-            res = requests.post(f"{BACKEND_HTTP_URL}/visitors/ring", data=data, files=files)
-            print("[Main] Unknown visitor alert logged to database status:", res.status_code)
-            
-        os.remove(temp_img_path)
-    except Exception as e:
-        print(f"[Main] Failed to post unknown alert: {e}")
+    # Save snapshot, record log, and video asynchronously
+    log_visitor_event_async(name, 'PENDING', 'PENDING', frame, video_frames)
 
 def auto_relock_timer():
     global is_locked

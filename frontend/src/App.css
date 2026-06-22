@@ -1,16 +1,17 @@
 /* Glassmorphism Panel styles */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--bg-panel);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-panel);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(15, 23, 42, 0.55);
+  border-color: var(--border-color);
+  background: var(--bg-panel);
+  opacity: 0.95;
 }
 
 /* Biometric Scan Line Animation */

@@ -24,23 +24,49 @@
     --input: 216 34% 17%;
     --ring: 263.4 70% 50.4%;
     --radius: 0.75rem;
+
+    /* Dark Mode Defaults */
+    --bg-app: #070b19;
+    --bg-sidebar: #0a0f20;
+    --bg-header: rgba(10, 15, 32, 0.6);
+    --bg-panel: rgba(10, 15, 32, 0.7);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --text-primary: #ffffff;
+    --text-secondary: #e2e8f0;
+    --text-muted: #94a3b8;
+    --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.3);
   }
 }
 
+.light-theme {
+  --bg-app: #f4f6fb;
+  --bg-sidebar: #ffffff;
+  --bg-header: rgba(255, 255, 255, 0.75);
+  --bg-panel: rgba(255, 255, 255, 0.75);
+  --border-color: rgba(99, 102, 241, 0.12);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --shadow-panel: 0 10px 30px rgba(99, 102, 241, 0.06);
+}
+
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: var(--bg-app);
+  color: var(--text-secondary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   margin: 0;
   overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Glassmorphism utility */
 .glass-panel {
-  background: rgba(10, 15, 30, 0.7);
+  background: var(--bg-panel);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-panel);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .glow-primary {
@@ -54,3 +80,95 @@ body {
 .glow-red {
   box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
 }
+
+/* Transitions for dashboard layout */
+.transition-theme {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Light Theme overrides for Tailwind classes */
+.light-theme .text-white {
+  color: var(--text-primary) !important;
+}
+.light-theme .text-slate-100 {
+  color: var(--text-primary) !important;
+}
+.light-theme .text-slate-200 {
+  color: var(--text-secondary) !important;
+}
+.light-theme .text-slate-300 {
+  color: var(--text-secondary) !important;
+}
+.light-theme .text-slate-400 {
+  color: var(--text-muted) !important;
+}
+.light-theme .text-slate-500 {
+  color: var(--text-muted) !important;
+}
+.light-theme .text-slate-600 {
+  color: var(--text-muted) !important;
+}
+.light-theme .text-\[\#e2e8f0\] {
+  color: var(--text-secondary) !important;
+}
+.light-theme .bg-\[\#070b19\] {
+  background-color: var(--bg-app) !important;
+}
+.light-theme .bg-\[\#0a0f20\] {
+  background-color: var(--bg-sidebar) !important;
+}
+.light-theme .bg-\[\#0a0f20\]\/60 {
+  background-color: var(--bg-header) !important;
+}
+.light-theme .bg-\[\#0a0f20\]\/80 {
+  background-color: var(--bg-header) !important;
+}
+.light-theme .bg-\[\#0a0f20\]\/95 {
+  background-color: var(--bg-sidebar) !important;
+}
+.light-theme .bg-slate-950 {
+  background-color: var(--bg-app) !important;
+}
+.light-theme .bg-slate-900\/40 {
+  background-color: var(--bg-panel) !important;
+}
+.light-theme .bg-slate-900\/10 {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+.light-theme .bg-slate-900\/20 {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+.light-theme .bg-slate-800 {
+  background-color: var(--bg-panel) !important;
+}
+.light-theme .bg-slate-800\/60 {
+  background-color: var(--bg-panel) !important;
+}
+.light-theme .border-slate-800 {
+  border-color: var(--border-color) !important;
+}
+.light-theme .border-slate-700 {
+  border-color: var(--border-color) !important;
+}
+.light-theme .border-slate-800\/50 {
+  border-color: var(--border-color) !important;
+}
+.light-theme .hover\:bg-slate-800\/40:hover {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+.light-theme .hover\:bg-slate-700:hover {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+.light-theme .hover\:text-white:hover {
+  color: var(--text-primary) !important;
+}
+.light-theme .hover\:bg-slate-900\/20:hover {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+}
+.light-theme .hover\:bg-slate-900\/10:hover {
+  background-color: rgba(99, 102, 241, 0.03) !important;
+}
+.light-theme .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border-color) !important;
+}
+
